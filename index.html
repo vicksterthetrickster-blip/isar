@@ -334,19 +334,24 @@
             { name: "Monzo", code: "M", color: "#FF5964" }
         ];
 
-        // --- Currency conversion, driven by math instead of hardcoded numbers ---
+        // --- Portfolio valuation and currency conversion ---
 
-        // Single source of truth: the net worth in AUD, plus this month's gain in AUD.
+        // This is the single source of truth for account values. In production this
+        // would come from the connected-account API, in each account's native currency.
+        const ACCOUNTS = [
+            { id: 'westpac', name: 'Westpac (AUS)', balance: 35120, currency: 'AUD' },
+            { id: 'bbva', name: 'BBVA (ESP)', balance: 42800, currency: 'EUR' },
+            { id: 'revolut', name: 'Revolut (UK)', balance: 12400, currency: 'GBP' },
+            { id: 'crypto', name: 'Crypto.com (US)', balance: 15400, currency: 'USD' },
+            { id: 'wise', name: 'Wise (EU)', balance: 8450, currency: 'EUR' },
+            { id: 'ibkr', name: 'Interactive Brokers', balance: 34280, currency: 'AUD' }
+        ];
+
+        // All exchange rates are stored as "1 AUD = X of this currency". This makes
+        // every account comparable: native balance -> AUD -> selected display currency.
         const BASE_CURRENCY = 'AUD';
-        const BASE_BALANCE_AUD = 3.00;
-        const BASE_GAIN_AUD = 1.00;
+        const BASE_GAIN_AUD = 3510.00; // Mock performance data; not part of net-worth valuation.
         const GAIN_PERIOD_LABEL = 'this month';
-
-// % change is derived, not typed in: gain ÷ balance-BEFORE-the-gain × 100.
-// (balance - gain) gives you the starting point the gain was measured against.
-        const MONTHLY_GAIN_PCT = ((BASE_GAIN_AUD / (BASE_BALANCE_AUD - BASE_GAIN_AUD)) * 100).toFixed(1);
-        // Exchange rates expressed as "1 AUD = X of this currency".
-        // Swap these for live rates from an FX API whenever you're ready.
         const EXCHANGE_RATES = {
             AUD: 1,
             USD: 0.658,
@@ -367,6 +372,20 @@
 
         function convertFromBase(amountAUD, code) {
             return amountAUD * EXCHANGE_RATES[code];
+        }
+
+        function convertToBase(amount, sourceCurrency) {
+            return amount / EXCHANGE_RATES[sourceCurrency];
+        }
+
+        function getPortfolioTotalAUD() {
+            return ACCOUNTS.reduce((total, account) => {
+                return total + convertToBase(account.balance, account.currency);
+            }, 0);
+        }
+
+        function getPortfolioTotal(code) {
+            return convertFromBase(getPortfolioTotalAUD(), code);
         }
 
         function updateRatesStatus() {
@@ -404,8 +423,8 @@
                 console.warn('Live FX fetch failed, using fallback rates.', err);
                 ratesAreLive = false;
             } finally {
+                renderPortfolioValue();
                 renderCurrencyMenu();
-                selectCurrency(activeCurrency);
                 updateRatesStatus();
             }
         }
@@ -418,13 +437,13 @@
             document.getElementById('curr-menu').classList.toggle('open');
         }
 
-        // Builds the dropdown list by computing each currency's value from the base balance,
-        // rather than reading pre-typed numbers.
+        // Every menu value is the sum of all account balances, converted from each
+        // native currency using the most recently fetched FX rates.
         function renderCurrencyMenu() {
             const container = document.getElementById('curr-items');
             container.innerHTML = Object.keys(EXCHANGE_RATES).map(code => {
                 const meta = CURRENCY_META[code];
-                const value = convertFromBase(BASE_BALANCE_AUD, code);
+                const value = getPortfolioTotal(code);
                 const activeClass = code === activeCurrency ? ' active' : '';
                 return `<button class="dropdown-item${activeClass}" onclick="selectCurrency('${code}')">` +
                        `<span>${meta.flag} ${code}</span>` +
@@ -435,17 +454,25 @@
 
         function selectCurrency(code) {
             activeCurrency = code;
+            renderPortfolioValue();
+            renderCurrencyMenu();
+            document.getElementById('curr-menu').classList.remove('open');
+        }
+
+        function renderPortfolioValue() {
+            const code = activeCurrency;
             const meta = CURRENCY_META[code];
-            const value = convertFromBase(BASE_BALANCE_AUD, code);
+            const totalAUD = getPortfolioTotalAUD();
+            const value = convertFromBase(totalAUD, code);
             const gain = convertFromBase(BASE_GAIN_AUD, code);
+            const gainPct = totalAUD > BASE_GAIN_AUD
+                ? ((BASE_GAIN_AUD / (totalAUD - BASE_GAIN_AUD)) * 100).toFixed(1)
+                : '0.0';
 
             document.getElementById('curr-label').innerText = code + ' ' + meta.flag;
             document.getElementById('balance-display').innerText = meta.symbol + formatMoney(value);
             document.getElementById('balance-subtext').innerText =
-                '↑ +' + MONTHLY_GAIN_PCT + '% (' + meta.symbol + formatMoney(gain) + ' ' + code + ') this month';
-
-            renderCurrencyMenu();
-            document.getElementById('curr-menu').classList.remove('open');
+                '↑ +' + gainPct + '% (' + meta.symbol + formatMoney(gain) + ' ' + code + ') ' + GAIN_PERIOD_LABEL;
         }
 
         // Initialize instantly with fallback rates so the UI never shows a blank state,
@@ -453,6 +480,8 @@
         renderCurrencyMenu();
         selectCurrency(BASE_CURRENCY);
         fetchLiveRates();
+        // Keep an open dashboard current without relying on a page reload.
+        setInterval(fetchLiveRates, 5 * 60 * 1000);
 
         function toggleTimeframeMenu() {
             const menu = document.getElementById('timeframe-dropdown');
@@ -611,3 +640,4 @@
     </style>
 </body>
 </html>
+
