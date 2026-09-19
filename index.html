@@ -400,15 +400,18 @@
             }
         }
 
-        // Pulls real, current exchange rates (base = AUD) from Frankfurter,
-        // a free, no-key, CORS-enabled rates API backed by ECB reference data.
+        // Pulls the latest published exchange rates (base = AUD) from Frankfurter's
+        // current v1 endpoint. It is free, needs no key, and supports browser CORS.
         async function fetchLiveRates() {
             const statusEl = document.getElementById('rates-status-text');
             if (statusEl) { statusEl.innerText = 'Refreshing rates…'; statusEl.style.color = '#71717A'; }
 
             try {
                 const targets = Object.keys(EXCHANGE_RATES).filter(c => c !== BASE_CURRENCY).join(',');
-                const response = await fetch(`https://api.frankfurter.app/latest?from=${BASE_CURRENCY}&to=${targets}`);
+                const response = await fetch(
+                    `https://api.frankfurter.dev/v1/latest?base=${BASE_CURRENCY}&symbols=${targets}`,
+                    { cache: 'no-store' }
+                );
                 if (!response.ok) throw new Error('Rate request failed: ' + response.status);
                 const data = await response.json();
 
